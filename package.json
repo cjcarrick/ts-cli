@@ -1,6 +1,7 @@
 {
   "name": "new",
   "type": "module",
+  "license": "MIT",
   "version": "1.0.0",
   "bin": "dist/index.js",
   "scripts": {
