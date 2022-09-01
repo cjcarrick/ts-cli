@@ -3,9 +3,8 @@ import { execa } from 'execa'
 import inquirer from 'inquirer'
 import path from 'path'
 import { existsSync, promises as fs } from 'fs'
-import url from 'url'
 import chalk from 'chalk'
-const __dirname = path.dirname(url.fileURLToPath(import.meta.url))
+const cwd = path.resolve(process.cwd())
 
 let packageJson: { [key: string]: any } = {
   dependencies: [],
@@ -54,7 +53,7 @@ async function main() {
       infoMsg('Creating files...')
 
       files['src/index.ts'] = ''
-      const projectDir = path.join(__dirname, await getProjectName())
+      const projectDir = path.join(cwd, await getProjectName())
 
       Object.entries(files).forEach(async ([filePath, contents]) => {
         if (typeof contents != 'string') contents = JSON.stringify(contents, null, 2)
@@ -147,8 +146,8 @@ async function getProjectName() {
       message: 'Project name?'
     })
 
-    if (existsSync(path.join(__dirname, name))) {
-      const dir = path.join(__dirname, name).replace(process.env.HOME || '', '~')
+    if (existsSync(path.join(cwd, name))) {
+      const dir = path.join(cwd, name).replace(process.env.HOME || '', '~')
       const choices = ['Append .old to existing project', 'Overwrite existing project', 'Abort']
       const { decision } = await inquirer.prompt({
         type: 'list',
@@ -159,14 +158,14 @@ async function getProjectName() {
 
       switch (choices.findIndex(a => a == decision)) {
         case 0:
-          if (existsSync(path.join(__dirname, `${name}.old`))) {
+          if (existsSync(path.join(cwd, `${name}.old`))) {
             infoMsg('Could not append .old because there is already a directory by the same name with the same .old extension.')
             process.exit(1)
           }
-          await fs.rename(path.join(__dirname, name), path.join(__dirname, `${name}.old`))
+          await fs.rename(path.join(cwd, name), path.join(cwd, `${name}.old`))
           break
         case 1:
-          await fs.rm(path.join(__dirname, name), { recursive: true })
+          await fs.rm(path.join(cwd, name), { recursive: true })
           break
         default:
           process.exit(0)

@@ -2,7 +2,7 @@
   "name": "@cjcarrick/ts-cli",
   "type": "module",
   "license": "MIT",
-  "version": "1.0.1",
+  "version": "1.0.3",
   "bin": "dist/index.js",
   "homepage": "https://github.com/cjcarrick/ts-cli",
   "scripts": {
