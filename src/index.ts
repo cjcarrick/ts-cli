@@ -62,6 +62,8 @@ async function main() {
         await fs.writeFile(path.join(projectDir, filePath), contents, 'utf8')
       })
 
+      infoMsg(`Wrote ${Object.keys(files).length} files to ${projectDir}.`)
+
       infoMsg('Installing dependencies...')
 
       const execaOpts = {
