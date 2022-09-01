@@ -1,32 +1,105 @@
 #!/usr/bin/env node
-import { writeFileSync } from 'fs'
+import { execa } from 'execa'
 import inquirer from 'inquirer'
 import path from 'path'
-import fs from 'fs'
+import { existsSync, promises as fs } from 'fs'
 import url from 'url'
+import chalk from 'chalk'
 const __dirname = path.dirname(url.fileURLToPath(import.meta.url))
 
 let packageJson: { [key: string]: any } = {
   dependencies: [],
-  devDependencies: [],  
+  scripts: {},
+  devDependencies: ['typescript']
+}
+let postInstallScripts: { bin: string; args: string[] }[] = []
+let esmSupported: boolean
+
+let files: { [filename: string]: string | any } = {}
+let gitignore: string[] = []
+
+function infoMsg(msg: string) {
+  console.log()
+  console.log(chalk.bgBlue(chalk.bold(' [ts-cli] ')), msg)
+  console.log()
 }
 
-let files: { [filename: string]: string } = {}
-
 async function main() {
-  const type = await getProjectType()
-  switch (type) {
-    case 'vanilla':
+  const projectTypes = ['Vanilla', 'Vue (with vue-cli)']
+  const type = await getProjectType(projectTypes)
+  const i = projectTypes.findIndex(a => a == type)
+
+  switch (i) {
+    case 0:
+      packageJson.name = await getProjectName()
+
       const packager = await getPackageManager()
 
       const buildTool = await getBuildTool()
       if (buildTool == 'esbuild') {
-        const { config } = await getEsbuildConfig(!!packager.match('yarn'))
+        packageJson.devDependencies.push('esbuild')
+        const { config } = await getEsbuildConfig((await getModuleType(buildTool)) == 'commonjs' ? 'cjs' : 'esm')
         files['build/index.js'] = config
       } else {
-        const tsconfig = await getTsconfig(, await getUseESM())
+        const tsconfig = await getTsconfig(await getEsTarget(buildTool), await getModuleType(buildTool), await getBuildTarget())
         files['tsconfig.json'] = tsconfig
       }
+
+      await getUseEslint()
+      await getUsePrettier()
+      await getAddNodemon(await getBuildTarget(), (await getModuleType(buildTool)) != 'commonjs', packageJson.name)
+
+      const start = new Date().getTime()
+
+      infoMsg('Creating files...')
+
+      files['src/index.ts'] = ''
+      const projectDir = path.join(__dirname, await getProjectName())
+
+      Object.entries(files).forEach(async ([filePath, contents]) => {
+        if (typeof contents != 'string') contents = JSON.stringify(contents, null, 2)
+        await fs.mkdir(path.join(projectDir, path.dirname(filePath)), { recursive: true })
+        await fs.writeFile(path.join(projectDir, filePath), contents, 'utf8')
+      })
+
+      infoMsg('Installing dependencies...')
+
+      const execaOpts = {
+        cwd: projectDir,
+        stdout: process.stdout,
+        stderr: process.stderr
+      }
+
+      await fs.writeFile(path.join(projectDir, 'package.json'), '{}', 'utf8')
+      if (packager == 'pnpm') {
+        if (packageJson.devDependencies.length) {
+          await execa('pnpm', ['add', '-D', ...packageJson.devDependencies], execaOpts)
+        }
+        if (packageJson.dependencies.length) {
+          await execa('pnpm', ['add', ...packageJson.dependencies], execaOpts)
+        }
+      } else if (packager == 'npm') {
+        if (packageJson.devDependencies.length) {
+          await execa('npm', ['i', '-D', ...packageJson.devDependencies], execaOpts)
+        }
+        if (packageJson.dependencies.length) {
+          await execa('npm', ['i', ...packageJson.dependencies], execaOpts)
+        }
+      }
+
+      infoMsg('Running post install scripts...')
+
+      postInstallScripts.forEach(async s => await execa(s.bin, s.args, execaOpts))
+
+      // Modify final package.json to add scripts
+      let pack = JSON.parse(await fs.readFile(path.join(projectDir, 'package.json'), 'utf8'))
+      delete packageJson.dependencies
+      delete packageJson.devDependencies
+      pack = { ...pack, ...packageJson }
+      if (moduleType) pack.type = 'module'
+      await fs.writeFile(path.join(projectDir, 'package.json'), JSON.stringify(pack, null, 2))
+
+      infoMsg(`Done. Finished in ${new Date().getTime() - start}ms`)
 
       return
 
@@ -35,8 +108,32 @@ async function main() {
   }
 }
 
-let esTarget:string
+let esTarget: 'es3' | 'es5' | 'es2015' | 'es2016' | 'es2017' | 'es2018' | 'es2019' | 'es2020' | 'es2021' | 'es2022' | 'esnext'
+async function getEsTarget(buildTool: 'esbuild' | 'tsc') {
+  if (esTarget == undefined) {
+    const choices =
+      buildTool == 'tsc'
+        ? ['es3', 'es5', 'es2015 (es6)', 'es2016', 'es2017', 'es2018', 'es2019', 'es2020', 'es2021', 'es2022', 'esnext']
+        : ['es2015 (es6)', 'es2016', 'es2017', 'es2018', 'es2019', 'es2020', 'es2021', 'es2022', 'esnext']
 
+    let { targ } = await inquirer.prompt({
+      choices,
+      message:
+        buildTool == 'tsc' ? 'ES version? (es3 and es5 will not come with support for modules unless building for node.)' : 'ES Version?',
+      type: 'list',
+      loop: false,
+      default: buildTool == 'tsc' ? 'es2015 (es6)' : 'es2021',
+      name: 'targ'
+    })
+    targ = (targ as string).match(/^es(next|[0-9]+)/i)![0]
+    esTarget = targ
+
+    // Determine if ES modules are supported based on this
+    const ver = parseInt(targ)
+    esmSupported = isNaN(ver) || ver > 5
+  }
+  return esTarget
+}
 
 let projectName: string
 async function getProjectName() {
@@ -44,52 +141,135 @@ async function getProjectName() {
     const { name } = await inquirer.prompt({
       type: 'input',
       name: 'name',
-      message: 'Project name?',
+      validate: input => !input.match(/[<>:"\/\\|?*]/i) && !!input.match(/\.?\w+/),
+      message: 'Project name?'
     })
+
+    if (existsSync(path.join(__dirname, name))) {
+      const dir = path.join(__dirname, name).replace(process.env.HOME || '', '~')
+      const choices = ['Append .old to existing project', 'Overwrite existing project', 'Abort']
+      const { decision } = await inquirer.prompt({
+        type: 'list',
+        name: 'decision',
+        message: `${dir} already exists. How to proceed?`,
+        choices
+      })
+
+      switch (choices.findIndex(a => a == decision)) {
+        case 0:
+          if (existsSync(path.join(__dirname, `${name}.old`))) {
+            infoMsg('Could not append .old because there is already a directory by the same name with the same .old extension.')
+            process.exit(1)
+          }
+          await fs.rename(path.join(__dirname, name), path.join(__dirname, `${name}.old`))
+          break
+        case 1:
+          await fs.rm(path.join(__dirname, name), { recursive: true })
+          break
+        default:
+          process.exit(0)
+      }
+    }
     projectName = name
   }
   return projectName
 }
 
-async function getTsconfig(esTarget: string, useEsm: boolean, target: 'node' | 'web') {
-  const { sourceMapType } = await inquirer.prompt({
-    type: 'list',
-    default: 'inline',
-    name: 'sourceMapType',
-    choices: ['separate', 'inline', 'none'],
-  })
+let addNodemon: boolean
+async function getAddNodemon(buildTarget: 'web' | 'node', useEsm: boolean, projectName: string) {
+  if (addNodemon == undefined) {
+    if (buildTarget == 'node') {
+      const { choice } = await inquirer.prompt({
+        type: 'confirm',
+        message: 'Add Nodemon script for development?',
+        default: true,
+        name: 'choice'
+      })
+      if (choice) {
+        packageJson.scripts['dev'] = 'nodemon dist/index.js'
+        packageJson.devDependencies.push('nodemon')
+      }
+      addNodemon = choice
+    } else if (buildTarget == 'web') {
+      const { choice } = await inquirer.prompt({
+        type: 'confirm',
+        message: 'Add live-server script for development?',
+        default: true,
+        name: 'choice'
+      })
+      if (choice) {
+        files['index.html'] = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script defer${useEsm ? ` type="module"` : ''} src="/dist/index.js"></script>
+  <title>${projectName}</title>
+</head>
+<body></body>
+</html>
+        `
+        packageJson.scripts['dev'] = 'live-server --no-browser'
+        packageJson.devDependencies.push('live-server')
+      }
+      addNodemon = choice
+    }
+  }
+  return addNodemon
+}
 
+let sourceMapType: string
+async function getSourceMapType() {
+  if (sourceMapType == undefined) {
+    const { type } = await inquirer.prompt({
+      type: 'list',
+      name: 'type',
+      choices: ['Inline', 'Separate', 'None'],
+      message: 'Source map type?'
+    })
+    sourceMapType = type
+  }
+  return sourceMapType
+}
+
+async function getTsconfig(esTarget: string, moduleType: string, target: 'node' | 'web') {
+  const sourceMapType = await getSourceMapType()
   let conf: any = {
     compilerOptions: {
       target: esTarget,
-      module: useEsm ? 'es6' : 'commonjs',
+      module: moduleType,
       strict: true,
-      inlineSourceMap: sourceMapType == 'inline' ? true : undefined,
-      sourceMap: sourceMapType == 'separate' ? true : undefined,
+      inlineSourceMap: sourceMapType.match(/inline/i) ? true : undefined,
+      sourceMap: sourceMapType.match(/separate/i) ? true : undefined,
       outDir: 'dist',
       esModuleInterop: true,
       lib: target == 'web' ? ['dom'] : [],
-      moduleResolution: target == 'node' ? 'node' : undefined,
-    },
+      moduleResolution: target == 'node' ? 'node' : undefined
+    }
   }
 
-  Object.entries(conf.compilerOptions).forEach(
-    ([key, prop]) => prop == undefined && delete conf.compilerOptions[key]
-  )
+  Object.entries(conf.compilerOptions).forEach(([key, prop]) => prop == undefined && delete conf.compilerOptions[key])
 
   return conf
 }
 
-let buildTool: string
+let buildTool: 'esbuild' | 'tsc'
 async function getBuildTool() {
   if (buildTool == undefined) {
     const { tool } = await inquirer.prompt({
       type: 'list',
       name: 'tool',
       message: 'Build tool?',
-      default: 'esbuild',
-      choices: ['tsc', 'esbuild'],
+      choices: ['esbuild', 'tsc']
     })
+    if (tool == 'tsc') {
+      packageJson.scripts.build = 'tsc src/index.ts'
+      packageJson.scripts.watch = 'tsc -w src/index.ts'
+    } else if (tool == 'esbuild') {
+      packageJson.scripts.build = 'node build/index.js'
+      packageJson.scripts.watch = 'node build/index.js -w'
+    }
+    gitignore.push('dist/')
     buildTool = tool
   }
   return buildTool
@@ -102,10 +282,13 @@ async function getUseEslint() {
       type: 'confirm',
       name: 'eslint',
       message: 'Use eslint?',
-      default: true,
+      default: true
     })
 
+    files['.eslintrc.js'] = ``
+
     packageJson.devDependencies.push('eslint')
+    reccomendedExtension('dbaeumer.vscode-eslint')
 
     useEslint = eslint
   }
@@ -119,23 +302,22 @@ async function getUsePrettier() {
       type: 'confirm',
       name: 'prettier',
       message: 'Use prettier?',
-      default: true,
+      default: true
     })
 
-    packageJson.prettier = {
-      semi: false,
-      singleQuote: true,
-      useTabs: false,
-      tabWidth: 2,
-      printWidth: 100,
-      arrowParens: 'avoid',
-    }
+    if (usePrettier) {
+      packageJson.prettier = {
+        semi: false,
+        singleQuote: true,
+        useTabs: false,
+        tabWidth: 2,
+        printWidth: 100,
+        arrowParens: 'avoid'
+      }
 
-    packageJson.devDependencies.push(
-      'prettier',
-      'prettier-plugin-organize-imports',
-      'prettier-plugin-jsdoc'
-    )
+      packageJson.devDependencies.push('prettier', 'prettier-plugin-organize-imports', 'prettier-plugin-jsdoc')
+      reccomendedExtension('esbenp.prettier-vscode')
+    }
 
     usePrettier = prettier
   }
@@ -143,17 +325,39 @@ async function getUsePrettier() {
 }
 
 let projectType: string
-async function getProjectType() {
+async function getProjectType(avalibleTypes: string[]) {
   if (projectType == undefined) {
     const { type } = await inquirer.prompt({
       type: 'list',
       name: 'type',
       message: 'What kind of Typescript project?',
-      choices: ['vanilla', 'vue (with vue-cli)'],
+      choices: avalibleTypes
     })
     projectType = type
   }
   return projectType
+}
+
+let editor: string
+async function getEditor() {
+  if (editor == undefined) {
+    const { e } = await inquirer.prompt({
+      type: 'list',
+      name: 'e',
+      message: 'Editor?',
+      default: 'vim',
+      choices: ['vim', 'vscode', 'unspecified']
+    })
+
+    editor = e
+  }
+  return editor
+}
+
+function reccomendedExtension(extensionName: string) {
+  const path = '.vscode/extensions.json'
+  if (!(path in files)) files[path] = { extensions: [] }
+  files[path].extensions.push(extensionName)
 }
 
 let packageManager: string
@@ -163,125 +367,154 @@ async function getPackageManager(): Promise<string> {
       type: 'list',
       name: 'packager',
       message: 'Pacakge Manager?',
-      default: 'npm',
-      choices: ['yarn', 'npm'],
+      choices: ['pnpm', 'npm']
     })
+
+    packageJson.scripts.start = 'node dist/index.js'
+    gitignore.push('node_modules/')
     packageManager = packager
   }
   return packageManager
 }
 
-let useESM: boolean
-async function getUseESM() {
-  if (useESM != undefined) return useESM
-  const answers = await inquirer.prompt({
-    type: 'confirm',
-    name: 'esm',
-    default: true,
-    message: 'Use ESM',
-  })
-  useESM = answers.esm
-  return answers.esm
+let moduleType: 'commonjs' | 'es2015' | 'es2020' | 'es2022' | 'esnext' | 'node16' | 'nodenext'
+async function getModuleType(buildTool: 'esbuild' | 'tsc') {
+  const estarg = await getEsTarget(buildTool)
+  const targ = await getBuildTarget()
+
+  if (moduleType == undefined) {
+    switch (estarg) {
+      case 'es3':
+      case 'es5':
+        moduleType = 'commonjs'
+        break
+      case 'es2015':
+      case 'es2016':
+      case 'es2017':
+      case 'es2018':
+      case 'es2019':
+        moduleType = 'es2015'
+        break
+      case 'es2020':
+      case 'es2021':
+        moduleType = 'es2020'
+        break
+      case 'es2022':
+        moduleType = 'es2022'
+        break
+      case 'esnext':
+        moduleType = targ == 'node' ? 'nodenext' : 'esnext'
+        break
+      default:
+        throw new Error(`Unhandled module type ${moduleType}`)
+    }
+  }
+  return moduleType
+}
+
+let buildTarget: 'node' | 'web'
+async function getBuildTarget(): Promise<typeof buildTarget> {
+  if (buildTarget == undefined) {
+    const { targ } = await inquirer.prompt({
+      type: 'list',
+      name: 'targ',
+      message: 'Build target?',
+      choices: ['node', 'web']
+    })
+    buildTarget = targ
+  }
+  return buildTarget
 }
 
 /** Generates a JS file that uses esbuild to build projects. */
-async function getEsbuildConfig(useYarn: boolean) {
-  type Answer = 'node' | 'broswer' | 'always' | 'dev' | 'prod' | 'never' | 'externals'
-  const options: { [key: string]: Answer } = await inquirer.prompt([
+async function getEsbuildConfig(moduleType: 'esm' | 'cjs') {
+  const { minify, bundle } = await inquirer.prompt([
     {
-      type: 'expand',
-      name: 'sourcemap',
-      default: 'dev',
-      choices: [
-        { key: 'y', name: 'always' },
-        { key: 'n', name: 'never' },
-        { key: 'd', name: 'dev' },
-        { key: 'p', name: 'prod' },
-      ],
-      message: 'Create source map?',
-    },
-    {
-      type: 'expand',
+      type: 'confirm',
       name: 'minify',
-      default: 'prod',
-      choices: [
-        { key: 'y', name: 'always' },
-        { key: 'n', name: 'never' },
-        { key: 'd', name: 'dev' },
-        { key: 'p', name: 'prod' },
-      ],
-      message: 'Minify?',
+      default: true,
+      message: 'Minify for production?'
     },
     {
-      type: 'expand',
+      type: 'list',
       name: 'bundle',
-      default: 'externals',
-      choices: [
-        { key: 'y', name: 'always' },
-        { key: 'n', name: 'never' },
-        { key: 'd', name: 'dev' },
-        { key: 'p', name: 'prod' },
-        { ket: 'e', name: 'externals' },
-      ],
-      message: 'Bundle?',
-    },
-    {
-      type: 'expand',
-      name: 'target',
-      default: 'node',
-      choices: [
-        { name: 'node', key: 'o' },
-        { name: 'browser', key: 'w' },
-      ],
-      message: 'Target?',
-    },
+      default: 1,
+      choices: ['All', 'Externals only', 'None'],
+      message: 'Bundle modules?'
+    }
   ])
 
   let devModeCheck = false
   let plugins: { [identifier: string]: string } = {}
 
   let externalsPlugin = {
-    makeAllPackagesExternalPlugin: `let makeAllPackagesExternalPlugin = {
+    makeAllPackagesExternalPlugin: `const makeAllPackagesExternalPlugin = {
   name: 'make-all-packages-external',
   setup(build) {
     let filter = /^[^.\/]|^\.[^.\/]|^\.\.[^\/]/ // Must not start with "/" or "./" or "../"
     build.onResolve({ filter }, args => ({ path: args.path, external: true }))
   },
-}`,
-  }
-  let yarnPlugin = {
-    'pnpPlugin()': `import { pnpPlugin } from '@yarnpkg/esbuild-plugin-pnp'`,
+}`
   }
 
-  const choiceParsed = (choice: Answer) => {
-    switch (choice) {
-      case 'always':
-        return 'true'
-      case 'dev':
-        devModeCheck = true
-        return `DEV`
-      case 'prod':
-        devModeCheck = true
-        return `!DEV`
-      case 'never':
-        return `false`
-      case 'externals':
-        plugins = { ...plugins, ...externalsPlugin }
-        return 'true'
+  const choiceParsed = (choice: string | boolean) => {
+    if (choice == true) {
+      return 'true'
+    }
+    if (choice == false) {
+      return 'false'
+    }
+    if (choice.match(/always|all/i)) {
+      return 'true'
+    }
+    if (choice.match(/external/i)) {
+      plugins = { ...plugins, ...externalsPlugin }
+      return 'true'
+    }
+    if (choice.match(/never/i)) {
+      return 'false'
+    }
+    if (choice.match(/prod/i)) {
+      devModeCheck = true
+      return `!DEV`
+    }
+    if (choice.match(/dev/i)) {
+      devModeCheck = true
+      return `DEV`
     }
   }
+
   let config = ''
-  if (await getUseESM()) {
-    config += `import esbuild from 'esbuild'`
+
+  if (esmSupported) {
+    config += `import esbuild from 'esbuild'\n\n`
   } else {
-    config += `const esbuild = require('esbuild')`
+    config += `const esbuild = require('esbuild')\n\n`
   }
 
-  config += `esbuild.buildSync({
+  const target = await getBuildTarget()
+  let sourcemap = await getSourceMapType()
+
+  if (sourcemap.match(/inline/i)) {
+    sourcemap = 'inline'
+  } else if (sourcemap.match(/separate/i)) {
+    sourcemap = 'linked'
+  } else {
+    sourcemap = ''
+  }
+
+  config += `esbuild.build({
   entryPoints: ['src/index.ts'],
-  bundle: ${choiceParsed(options.bundle)},
-  minify: ${choiceParsed(options.minify)},${options.target == 'node' ? 'target: node,' : ''}
-  sourcemap: ${choiceParsed(options.sourcemap)},${
+  watch: process.argv.includes('-w'),
+  target: ['${await getEsTarget('esbuild')}'],
+  bundle: ${choiceParsed(bundle)},
+  format: "${moduleType}",
+  minify: ${choiceParsed(minify)},${target == 'node' ? `target: 'node',` : ''}${
+    sourcemap
+      ? `
+  sourcemap: ${sourcemap == 'linked' ? 'true' : `'inline'`},`
+      : ''
+  }${
     plugins
       ? `
   plugins: [
@@ -289,7 +522,7 @@ async function getEsbuildConfig(useYarn: boolean) {
   ],`
       : ''
   }
-  outfile: 'dist/index.js',
+  outdir: 'dist',
 })
 `
   if (devModeCheck) {
@@ -303,7 +536,7 @@ ${config}`
 ${config}`
   }
 
-  return { config, options }
+  return { config }
 }
 
 main()
