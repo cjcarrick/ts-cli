@@ -2,6 +2,16 @@
 
 Quickly scaffold typescript projects.
 
+```sh
+pnpm dlx @cjcarrick/ts-cli
+```
+
+or
+
+```sh
+npx @cjcarrick/ts-cli
+```
+
 ### Features
 
 - Builds for Node or web, with or without ES Modules.
