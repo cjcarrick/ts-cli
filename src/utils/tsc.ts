@@ -1,5 +1,5 @@
-import { ESTargets, FileDescriptor, ModuleTypes, Runtimes } from '../utils'
-import { format } from './prettier'
+import { ESTargets, FileDescriptor, ModuleTypes, Runtimes } from '../utils/index.js'
+import { format } from './prettier.js'
 
 export default function tsc(
   target: Runtimes,

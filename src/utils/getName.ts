@@ -3,7 +3,7 @@ import { existsSync } from 'fs'
 import fs from 'fs/promises'
 import inquirer from 'inquirer'
 import path from 'path'
-import { cwd, warnMsg } from '.'
+import { cwd, warnMsg } from './index.js'
 
 export default async function getName(existingName?: string) {
   // Ask for a project name if none was provided in argv

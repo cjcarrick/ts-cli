@@ -1,7 +1,7 @@
 import commandExists from 'command-exists'
 import { execa, Options } from 'execa'
 import chalk from 'chalk'
-import { blueBg, blueFg, warnMsg } from '../utils'
+import { warnMsg } from '../utils/index.js'
 import process from 'process'
 
 export type Command = { bin: string; args?: string[] }

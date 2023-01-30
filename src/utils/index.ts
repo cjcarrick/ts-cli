@@ -1,7 +1,7 @@
 import path from 'path'
 import fs from 'fs/promises'
 import chalk from 'chalk'
-import { format } from './prettier'
+import { format } from './prettier.js'
 
 export const cwd = path.resolve(process.cwd())
 
@@ -40,7 +40,7 @@ export const esTargets = [
 ] as const
 export type ESTargets = typeof esTargets[number]
 
-export const willTranspile = (runtime: Runtimes) => runtime !== 'web'
+export const willTranspile = (runtime: Runtimes) => runtime !== 'bun'
 
 export function indexHtml(useEsm: boolean, title: string, pathToCss?: string) {
   return format(
@@ -48,10 +48,9 @@ export function indexHtml(useEsm: boolean, title: string, pathToCss?: string) {
     <title>${title}</title>
     <meta charset="UTF-8"> <meta name="viewport" content="width=device-width, initial-scale=1.0"> 
     ` +
-      (pathToCss ? ` <link rel="stylesheet" href="${pathToCss}"> ` : '') +
-      `<script defer ${
-        useEsm ? `type="module"` : ''
-      } src="/dist/index.js"></script>
+    (pathToCss ? ` <link rel="stylesheet" href="${pathToCss}"> ` : '') +
+    `<script defer ${useEsm ? `type="module"` : ''
+    } src="/dist/index.js"></script>
   </head> <body> </body> </html>`,
     'html'
   )

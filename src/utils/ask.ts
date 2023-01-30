@@ -5,8 +5,8 @@ import {
   getAvalibleEsTargets,
   getModuleType,
   packageManagers
-} from '.'
-import { Params } from './yargs'
+} from './index.js'
+import { Params } from './yargs.js'
 
 export default async function Ask(): Promise<Omit<Params, 'name'>> {
   const {

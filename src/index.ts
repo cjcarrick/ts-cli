@@ -1,14 +1,14 @@
 #!/usr/bin/env node
 import chalk from 'chalk'
 import path from 'path'
-import getName from './utils/getName'
-import askForArgs from './utils/ask'
-import useParams from './utils/handleParams'
-import { blueFg, cwd, infoMsg, willTranspile } from './utils'
-import { installDeps } from './utils/npm'
-import Scripts from './utils/scripts'
-import readme from './utils/readme'
-import { argv, Params, parsed } from './utils/yargs'
+import getName from './utils/getName.js'
+import askForArgs from './utils/ask.js'
+import useParams from './utils/handleParams.js'
+import { cwd, infoMsg, willTranspile } from './utils/index.js'
+import { installDeps } from './utils/npm.js'
+import Scripts from './utils/scripts.js'
+import readme from './utils/readme.js'
+import { Params, parsed } from './utils/yargs.js'
 
 main()
 
@@ -34,7 +34,7 @@ async function main() {
   // Write files ---
   infoMsg('Creating files...')
   files.add({
-    name: willTranspile(params.runtime) ? 'index.ts' : 'src/index.ts',
+    name: willTranspile(params.runtime) ? 'src/index.ts' : 'index.ts',
     contents:
       params.css && params.buildTool == 'esbuild'
         ? `import './style.scss'\n`

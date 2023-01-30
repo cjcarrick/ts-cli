@@ -1,5 +1,5 @@
-import { FileDescriptor } from './'
-import { format } from './prettier'
+import { FileDescriptor } from './index.js'
+import { format } from './prettier.js'
 
 export function bun(): FileDescriptor[] {
   return [

@@ -1,5 +1,5 @@
-import { PackageManagers, packageManagers } from '../utils'
-import { cmdExists } from './scripts'
+import { PackageManagers, packageManagers } from '../utils/index.js'
+import { cmdExists } from './scripts.js'
 
 export default async function getPackageManagers() {
   let result: PackageManagers[] = []

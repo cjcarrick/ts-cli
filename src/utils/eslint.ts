@@ -1,5 +1,5 @@
-import { format } from './prettier'
-import { Runtimes, FileDescriptor } from '../utils'
+import { format } from './prettier.js'
+import { Runtimes, FileDescriptor } from '../utils/index.js'
 
 export default function eslintConfig(target: Runtimes): FileDescriptor {
   const conf = `module.exports = {

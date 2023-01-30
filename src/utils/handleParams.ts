@@ -1,12 +1,12 @@
-import { FileList, indexHtml, willTranspile } from '.'
-import { esbuildLib, esbuildScript } from './esbuild'
-import eslint, { eslintNodeDeclarator } from './eslint'
-import { bun } from './bun'
-import { prettierConfig } from './prettier'
-import tsc from './tsc'
-import { Params } from './yargs'
-import PackageJson from './npm'
-import Scripts from './scripts'
+import { FileList, indexHtml, willTranspile } from './index.js'
+import { esbuildLib, esbuildScript } from './esbuild.js'
+import eslint, { eslintNodeDeclarator } from './eslint.js'
+import { bun } from './bun.js'
+import { prettierConfig } from './prettier.js'
+import tsc from './tsc.js'
+import { Params } from './yargs.js'
+import PackageJson from './npm.js'
+import Scripts from './scripts.js'
 
 export default function handleParams(params: Params, name: string) {
   // Initialize variables that will be added to depending on the params

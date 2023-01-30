@@ -1,6 +1,6 @@
 import { CoreProperties } from '@schemastore/package'
-import { format } from './prettier'
-import { Params } from './yargs'
+import { format } from './prettier.js'
+import { Params } from './yargs.js'
 
 export default function readme(packageJson: CoreProperties, args: Params) {
   let markdown = `

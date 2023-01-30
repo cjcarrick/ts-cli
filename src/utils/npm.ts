@@ -1,5 +1,5 @@
 import { CoreProperties } from '@schemastore/package'
-import { format } from './prettier'
+import { format } from './prettier.js'
 
 export default class PackageJson {
   data: CoreProperties

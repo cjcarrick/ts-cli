@@ -1,6 +1,6 @@
-import { FileDescriptor, getTargetNodeVersion, hardWrap } from '../utils'
-import { Params } from './yargs'
-import { format } from './prettier'
+import { FileDescriptor, getTargetNodeVersion } from '../utils/index.js'
+import { Params } from './yargs.js'
+import { format } from './prettier.js'
 import chalk from 'chalk'
 
 export function esbuildScript(params: Params): FileDescriptor {
@@ -12,17 +12,20 @@ export function esbuildScript(params: Params): FileDescriptor {
   let script = ''
   script += esm ? "import esbuild from 'esbuild';" : ''
   script += esm ? "import { handleBuildDone } from './lib.js';" : ''
-  script += esm && params.css ? "import { sassPlugin } from 'esbuild-sass-plugin';" : ''
+  script +=
+    esm && params.css ? "import { sassPlugin } from 'esbuild-sass-plugin';" : ''
   script += esm ? '' : 'const esbuild = require("esbuild");'
   script += esm ? '' : 'const { handleBuildDone } = require("./lib.js");'
-  script += !esm && params.css ? "const { sassPlugin } = require('esbuild-sass-plugin');" : ''
+  script +=
+    !esm && params.css
+      ? "const { sassPlugin } = require('esbuild-sass-plugin');"
+      : ''
   script += `const DEV = !!process.env.NODE_ENV?.match(/dev/i);`
   script += `const WATCH = !!process.argv.includes('-w');`
   script += '\n\n'
   script +=
     `esbuild.build({
     entryPoints: ['src/index.ts'],
-    watch: WATCH && { onRebuild: a => handleBuildDone(a) },
     target: [` +
     `"${params.esTarget}",` +
     (params.runtime == 'node'
@@ -32,15 +35,31 @@ export function esbuildScript(params: Params): FileDescriptor {
     bundle: ${params.bundleModules},
     logLevel: 'silent',
     minify: ${params.minify && `!DEV`},
-    format: "${esm ? 'esm' : 'cjs'}",${
-      params.css
-        ? `plugins: [sassPlugin({ type: 'style', style: 'compressed' })],`
-        : ''
+    format: "${esm ? 'esm' : 'cjs'}",${params.css
+      ? `plugins: [sassPlugin({ type: 'style', style: 'compressed' })],`
+      : ''
     }
-    outdir: 'dist', ${
-      params.sourceMap ? "sourcemap: 'inline'," : ''
-    }}).then(a => handleBuildDone(a))
-  .catch(a => handleBuildDone(a))`
+    outdir: 'dist', ${params.sourceMap ? "sourcemap: 'inline'," : ''}})
+
+    if (WATCH) {
+      const ctx = await esbuild.context({
+        ...buildOpts,
+        plugins: [
+          ...(buildOpts.plugins || []),
+          {
+            name: 'Watcher Logger',
+            setup: build => {
+              build.onEnd(handleBuildDone)
+            }
+          }
+        ]
+      })
+      await ctx.watch()
+    } else {
+
+    esbuild.build(buildOpts).then(handleBuildDone) .catch(handleBuildDone)
+    }
+`
 
   return { name: 'util/build.js', contents: format(script, 'js') }
 }
@@ -217,11 +236,11 @@ function printDetail(a) {
 
 function printError(e) {
   msg('', 'error', e.text)
-  printDetail(e)
+  if (e.location) printDetail(e)
 }
 function printWarning(e) {
   msg('', 'warn', e.text)
-  printDetail(e)
+  if (e.location) printDetail(e)
 }
 
 function handleBuildDone(buildStatus, isRebuild = false) {

@@ -5,14 +5,11 @@ import {
   BuildTools,
   ESTargets,
   ModuleTypes,
-  packageManagers,
   PackageManagers,
   runtimes,
   buildTools,
   getModuleType
-} from '.'
-
-import getPacakgeManager from './packageManager'
+} from './index.js'
 
 export type Params = {
   name: string
@@ -172,7 +169,6 @@ if (args.runtime) {
     }),
     {}
   ) as Params
-
 
   if (args.barebones) {
     parsed = {
