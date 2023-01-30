@@ -24,7 +24,7 @@ export function esbuildScript(params: Params): FileDescriptor {
   script += `const WATCH = !!process.argv.includes('-w');`
   script += '\n\n'
   script +=
-    `esbuild.build({
+    `const buildOpts = {
     entryPoints: ['src/index.ts'],
     target: [` +
     `"${params.esTarget}",` +
@@ -39,7 +39,7 @@ export function esbuildScript(params: Params): FileDescriptor {
       ? `plugins: [sassPlugin({ type: 'style', style: 'compressed' })],`
       : ''
     }
-    outdir: 'dist', ${params.sourceMap ? "sourcemap: 'inline'," : ''}})
+    outdir: 'dist', ${params.sourceMap ? "sourcemap: 'inline'," : ''}}
 
     if (WATCH) {
       const ctx = await esbuild.context({
